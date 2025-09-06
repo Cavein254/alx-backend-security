@@ -1,6 +1,8 @@
 from .models import RequestLog, BlockedIP
 from django.utils.timezone import now
 from django.http import HttpResponseForbidden
+from django.core.cache import cache
+from ipgeolocation import geolocator
 
 class IPLoggingMiddleware:
     def __init__(self, get_response):
@@ -11,11 +13,21 @@ class IPLoggingMiddleware:
 
         if BlockedIP.objects.filter(ip_address=ip).exists():
             return HttpResponseForbidden("Your IP has been blocked")
+        
+        geo_data = cache.get(f"geo:ip")
+        if not geo_data:
+            try:
+                geo_data = geolocator.locate(ip)
+            except:
+                geo_data = {"country": None, "city": None}
+            cache.set(f"geo:{ip}", geo_data, 60 * 60 * 24)
 
         RequestLog.objects.create(
             ip_address=ip,
             timestamp=now(),
-            path=request.path
+            path=request.path,
+            country=geo_data.get("country"),
+            city=geo_data.get("city")
         )
 
         response = self.get_response(request)
